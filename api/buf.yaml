@@ -1,0 +1,21 @@
+version: v2
+
+modules:
+  - path: protos
+    lint:
+      use:
+        - STANDARD
+    breaking:
+      use:
+        - FILE
+deps:
+  - 'buf.build/googleapis/googleapis'
+  - 'buf.build/gnostic/gnostic'
+
+breaking:
+  use:
+    - FILE
+
+lint:
+  use:
+    - DEFAULT

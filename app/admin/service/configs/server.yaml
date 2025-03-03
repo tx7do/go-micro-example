@@ -1,0 +1,22 @@
+﻿server:
+  rest:
+    enable: true
+    addr: ":8000"
+
+registry:
+  type: "consul"
+
+  consul:
+    address: "127.0.0.1:8500"
+    scheme: "http"
+    health_check: false
+
+logger:
+  type: std
+
+  zap:
+    level: "debug"
+    filename: "./logs/admin_server.log"
+    max_size: 1
+    max_age: 30
+    max_backups: 5

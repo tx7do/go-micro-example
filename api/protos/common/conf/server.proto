@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package common.conf;
+
+import "google/protobuf/duration.proto";
+import "common/conf/middleware.proto";
+
+// 服务器
+message Server {
+  // REST
+  message REST {
+    message CORS {
+      repeated string headers = 1;  //
+      repeated string methods = 2;  //
+      repeated string origins = 3;  //
+    }
+
+    bool enable = 1;
+
+    string network = 2; // 网络
+    string addr = 3;  // 服务监听地址
+    google.protobuf.Duration timeout = 4; // 超时时间
+    CORS cors = 5;  // 服务监听地址
+    Middleware middleware = 6;  // 中间件
+  }
+
+  // gPRC
+  message GRPC {
+    bool enable = 1;
+
+    string network = 2; // 网络
+    string addr = 3;  // 服务监听地址
+    google.protobuf.Duration timeout = 4; // 超时时间
+    Middleware middleware = 5;
+  }
+
+  // Websocket
+  message Websocket {
+    bool enable = 1;
+
+    string network = 2; // 网络样式：http、https
+    string addr = 3;  // 服务监听地址
+    string path = 4;  // 路径
+    string codec = 5;  // 编解码器
+    google.protobuf.Duration timeout = 6; // 超时时间
+  }
+
+  // MQTT
+  message Mqtt {
+    bool enable = 1;
+
+    string addr = 2;  // 对端网络地址
+  }
+
+  // Kafka
+  message Kafka {
+    bool enable = 1;
+
+    repeated string addrs = 2;  // 对端网络地址
+  }
+
+  // RabbitMQ
+  message RabbitMQ {
+    bool enable = 1;
+
+    repeated string addrs = 2;  // 对端网络地址
+  }
+
+  // SSE
+  message SSE {
+    bool enable = 1;
+
+    string network = 2; // 网络
+    string addr = 3;  // 服务监听地址
+    google.protobuf.Duration timeout = 4; // 超时时间
+    string path = 5;  // 路径
+    string codec = 6;  // 编解码器
+  }
+
+  // micro rpc
+  message Micro {
+    bool enable = 1;
+
+    string network = 2; // 网络
+    string addr = 3;  // 服务监听地址
+    google.protobuf.Duration timeout = 4; // 超时时间
+    Middleware middleware = 5;
+  }
+
+  REST rest = 1;  // REST服务
+  GRPC grpc = 2;  // gRPC服务
+  Websocket websocket = 3;  // Websocket服务
+  Mqtt mqtt = 4;  // MQTT服务
+  Kafka kafka = 5;  // Kafka服务
+  RabbitMQ rabbitmq = 6;  // RabbitMQ服务
+  SSE sse = 7;  // SSE服务
+  Micro micro = 8;  // micro服务
+}

@@ -1,0 +1,46 @@
+# 配置protoc生成规则
+version: v2
+
+clean: true
+
+managed:
+  enabled: true
+
+  disable:
+    - module: buf.build/googleapis/googleapis
+    - module: 'buf.build/envoyproxy/protoc-gen-validate'
+    - module: 'buf.build/gnostic/gnostic'
+    - module: 'buf.build/gogo/protobuf'
+
+  override:
+    - file_option: go_package_prefix
+      value: go-micro-example/api/gen/go
+
+plugins:
+  # 使用go插件生成go代码
+  #- plugin: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
+    out: gen/go
+    opt: paths=source_relative # 使用相对路径
+
+  # 使用go-grpc插件生成gRPC服务代码
+  #- plugin: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
+    out: gen/go
+    opt:
+      - paths=source_relative # 使用相对路径
+
+  # generate message micro go code
+  - local: protoc-gen-micro
+    out: gen/go
+    opt:
+      - paths=source_relative # 使用相对路径
+      - lang=go
+
+  # generate message grpc-gateway go code
+  - local: protoc-gen-grpc-gateway
+    out: gen/go
+    opt:
+      - paths=source_relative # 使用相对路径
+      - register_func_suffix=GW # 注册函数后缀
+      - logtostderr=true

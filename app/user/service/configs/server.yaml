@@ -1,0 +1,28 @@
+﻿server:
+  micro:
+    enable: true
+    addr: ":9000"
+
+registry:
+  type: "consul"
+
+  consul:
+    address: "127.0.0.1:8500"
+    scheme: "http"
+    health_check: false
+
+logger:
+  type: std
+
+  zap:
+    level: "debug"
+    filename: "./logs/user_server.log"
+    max_size: 1
+    max_age: 30
+    max_backups: 5
+
+data:
+  database:
+    driver: "postgres"
+    source: "host=localhost port=5432 user=postgres password=@Abcd123456 dbname=example sslmode=disable"
+    migrate: true

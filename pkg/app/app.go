@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
 	"go-micro.dev/v5"
@@ -39,8 +40,9 @@ func init() {
 type App struct {
 	srv micro.Service
 
-	web        web.Service
-	gatewayMux *runtime.ServeMux
+	web            web.Service
+	grpcGatewayMux *runtime.ServeMux
+	ginRouter      *gin.Engine
 
 	logger logger.Logger
 
@@ -61,8 +63,12 @@ func (a *App) WebService() web.Service {
 	return a.web
 }
 
-func (a *App) ServeMux() *runtime.ServeMux {
-	return a.gatewayMux
+func (a *App) GrpcGatewayServeMux() *runtime.ServeMux {
+	return a.grpcGatewayMux
+}
+
+func (a *App) GinRouter() *gin.Engine {
+	return a.ginRouter
 }
 
 func (a *App) Logger() logger.Logger {
@@ -250,7 +256,6 @@ func (a *App) CreateMicroService(ctx context.Context, serviceName, version strin
 }
 
 func (a *App) CreateRestService(ctx context.Context, serviceName, version string, cfg *confV1.Server_REST, aLog logger.Logger, reg registry.Registry) web.Service {
-	gatewayMux := runtime.NewServeMux()
 
 	var opts = []web.Option{
 		web.Context(ctx),
@@ -258,8 +263,22 @@ func (a *App) CreateRestService(ctx context.Context, serviceName, version string
 		web.Version(version),
 	}
 
-	if gatewayMux != nil {
-		opts = append(opts, web.Handler(gatewayMux))
+	if cfg.GetEnableGrpcGateway() {
+		gatewayMux := runtime.NewServeMux()
+		a.grpcGatewayMux = gatewayMux
+
+		if gatewayMux != nil {
+			opts = append(opts, web.Handler(gatewayMux))
+		}
+	} else {
+		gin.SetMode(gin.DebugMode)
+		router := gin.New()
+		router.Use(gin.Recovery())
+		a.ginRouter = router
+
+		if router != nil {
+			opts = append(opts, web.Handler(router))
+		}
 	}
 
 	if cfg != nil {
@@ -287,7 +306,6 @@ func (a *App) CreateRestService(ctx context.Context, serviceName, version string
 	}
 
 	a.web = srv
-	a.gatewayMux = gatewayMux
 
 	a.createMicroClient(reg)
 

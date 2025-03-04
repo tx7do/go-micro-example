@@ -5,7 +5,6 @@ import (
 	"flag"
 	"log"
 
-	"go-micro-example/app/admin/service/internal/data"
 	"go-micro-example/app/admin/service/internal/server"
 
 	"go-micro-example/pkg/app"
@@ -34,10 +33,10 @@ func main() {
 	}
 	defer aApp.Stop()
 
-	userServiceClient := data.NewUserServiceMicroClient(aApp.MicroClient())
-
-	// 初始化grpc服务
-	server.InitRestServer(ctx, aApp.ServeMux(), userServiceClient)
+	// 初始化服务器
+	if err := server.InitServer(ctx, aApp); err != nil {
+		panic(err)
+	}
 
 	// 启动服务
 	if err := aApp.Run(); err != nil {

@@ -25,7 +25,7 @@ func NewUserService(userServiceClient userV1.UserService) *UserService {
 // GetUser 获取用户数据
 func (s *UserService) GetUser(ctx context.Context, req *userV1.GetUserRequest) (*userV1.User, error) {
 	resp, err := s.userServiceClient.GetUser(ctx, req)
-	fmt.Printf("GET USER 1 [%v] [%v] [%v] \n", req, resp, err)
+	fmt.Printf("[GRPC-GATEWAY] GET USER [%v] [%v] [%v] \n", req, resp, err)
 	return resp, err
 }
 

@@ -2,6 +2,7 @@
   rest:
     enable: true
     addr: ":8000"
+    enable_grpc_gateway: false
 
 registry:
   type: "consul"

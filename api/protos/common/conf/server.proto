@@ -20,8 +20,11 @@ message Server {
     string network = 2; // 网络
     string addr = 3;  // 服务监听地址
     google.protobuf.Duration timeout = 4; // 超时时间
+
     CORS cors = 5;  // 服务监听地址
     Middleware middleware = 6;  // 中间件
+
+    bool enable_grpc_gateway = 10; // 是否启用gRPC-gateway，否则使用gin
   }
 
   // gPRC

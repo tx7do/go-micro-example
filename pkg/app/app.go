@@ -419,10 +419,10 @@ func (a *App) Stop() {
 	}
 
 	if a.webService != nil {
-		if err := a.webService.Stop(); err != nil {
-			panic(err)
-			return
-		}
+		//if err := a.webService.Stop(); err != nil {
+		//	panic(err)
+		//	return
+		//}
 		a.webService = nil
 	}
 }

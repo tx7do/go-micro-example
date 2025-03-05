@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	"go-micro-example/app/user/service/internal/data"
+	"go-micro-example/app/user/service/internal/data/models"
 	"go-micro-example/app/user/service/internal/server"
 
 	"go-micro-example/pkg/app"
@@ -26,23 +26,24 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	aApp := app.New()
+	a := app.New(
+		app.WithConfigPath(*confPath),
+		app.WithServiceName(service.UserService),
+		app.WithVersion(*version),
+		app.WithGormMigrators(models.GetMigrates()),
+	)
 
 	// 初始化服务
-	if err := aApp.Start(ctx, *confPath, service.UserService, *version); err != nil {
+	if err := a.Start(ctx); err != nil {
 		panic(err)
 	}
-	defer aApp.Stop()
-
-	db := data.NewGormClient(aApp.Config().Data, aApp.Logger())
-
-	userRepo := data.NewUserRepo(db)
+	defer a.Stop()
 
 	// 初始化rpc服务
-	server.InitMicroServer(aApp.Service(), userRepo)
+	server.InitMicroServer(ctx, a)
 
 	// 启动服务
-	if err := aApp.Run(); err != nil {
+	if err := a.Run(); err != nil {
 		log.Fatalf("Failed to run service: %v", err)
 	}
 }

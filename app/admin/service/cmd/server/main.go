@@ -25,21 +25,25 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	aApp := app.New()
+	a := app.New(
+		app.WithConfigPath(*confPath),
+		app.WithServiceName(service.AdminService),
+		app.WithVersion(*version),
+	)
 
 	// 初始化服务
-	if err := aApp.Start(ctx, *confPath, service.AdminService, *version); err != nil {
+	if err := a.Start(ctx); err != nil {
 		panic(err)
 	}
-	defer aApp.Stop()
+	defer a.Stop()
 
 	// 初始化服务器
-	if err := server.InitServer(ctx, aApp); err != nil {
+	if err := server.InitServer(ctx, a); err != nil {
 		panic(err)
 	}
 
 	// 启动服务
-	if err := aApp.Run(); err != nil {
+	if err := a.Run(); err != nil {
 		log.Fatalf("Failed to run service: %v", err)
 	}
 }

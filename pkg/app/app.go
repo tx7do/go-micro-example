@@ -6,6 +6,13 @@ import (
 	"log"
 	"time"
 
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	"github.com/redis/go-redis/extra/redisotel/v9"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
@@ -38,29 +45,53 @@ func init() {
 }
 
 type App struct {
-	srv micro.Service
+	configPath  string
+	serviceInfo ServiceInfo
+	cfg         *confV1.Bootstrap
 
-	web            web.Service
+	microService micro.Service
+
+	webService     web.Service
 	grpcGatewayMux *runtime.ServeMux
 	ginRouter      *gin.Engine
 
 	logger logger.Logger
 
-	cfg *confV1.Bootstrap
-
 	microClient client.Client
+
+	gormDB        *gorm.DB
+	gormMigrators []interface{}
+
+	rdb *redis.Client
+
+	registry registry.Registry
 }
 
-func New() *App {
-	return &App{}
+func New(opts ...Option) *App {
+	app := &App{
+		configPath: "./configs/server.yaml",
+		serviceInfo: ServiceInfo{
+			Version: "1.0.0",
+		},
+	}
+
+	app.init(opts...)
+
+	return app
 }
 
-func (a *App) Service() micro.Service {
-	return a.srv
+func (a *App) init(opts ...Option) {
+	for _, o := range opts {
+		o(a)
+	}
+}
+
+func (a *App) MicroService() micro.Service {
+	return a.microService
 }
 
 func (a *App) WebService() web.Service {
-	return a.web
+	return a.webService
 }
 
 func (a *App) GrpcGatewayServeMux() *runtime.ServeMux {
@@ -79,16 +110,24 @@ func (a *App) Config() *confV1.Bootstrap {
 	return a.cfg
 }
 
+func (a *App) Gorm() *gorm.DB {
+	return a.gormDB
+}
+
+func (a *App) Redis() *redis.Client {
+	return a.rdb
+}
+
 func (a *App) MicroClient() client.Client {
-	if a.srv != nil {
-		return a.srv.Client()
+	if a.microService != nil {
+		return a.microService.Client()
 	}
 	//return client.DefaultClient
 	return a.microClient
 }
 
-// LoadConfig 加载配置
-func (a *App) LoadConfig(path string) (*confV1.Bootstrap, error) {
+// loadConfig 加载配置
+func (a *App) loadConfig(path string) (*confV1.Bootstrap, error) {
 	enc := yaml.NewEncoder()
 
 	c, err := config.NewConfig(
@@ -128,15 +167,17 @@ func (a *App) LoadConfig(path string) (*confV1.Bootstrap, error) {
 	return cfg, nil
 }
 
-// InitRegistry 初始化注册器
-func (a *App) InitRegistry(cfg *confV1.Registry) registry.Registry {
+// initRegistry 初始化注册器
+func (a *App) initRegistry(cfg *confV1.Registry) registry.Registry {
 	if cfg == nil {
 		return nil
 	}
 
+	var reg registry.Registry
+
 	switch cfg.GetType() {
 	case "consul":
-		return consul.NewRegistry(
+		reg = consul.NewRegistry(
 			func(options *registry.Options) {
 				options.Addrs = []string{cfg.Consul.GetAddress()}
 				//options.Timeout = 5 * time.Second
@@ -144,15 +185,13 @@ func (a *App) InitRegistry(cfg *confV1.Registry) registry.Registry {
 		)
 
 	case "etcd":
-		return etcd.NewRegistry()
+		reg = etcd.NewRegistry()
 
 	case "zookeeper":
-		//return zookeeper.NewRegistry()
-		return nil
+		//reg = zookeeper.NewRegistry()
 
 	case "nacos":
-		//return nacos.NewRegistry()
-		return nil
+		//reg = nacos.NewRegistry()
 
 	case "kubernetes":
 		return nil
@@ -171,13 +210,19 @@ func (a *App) InitRegistry(cfg *confV1.Registry) registry.Registry {
 	default:
 		return nil
 	}
+
+	a.registry = reg
+
+	return reg
 }
 
-// InitLogger 初始化日志
-func (a *App) InitLogger(cfg *confV1.Logger) logger.Logger {
+// initLogger 初始化日志
+func (a *App) initLogger(cfg *confV1.Logger) logger.Logger {
 	if cfg == nil {
 		return nil
 	}
+
+	var l logger.Logger
 
 	switch cfg.GetType() {
 	case "logrus":
@@ -185,7 +230,8 @@ func (a *App) InitLogger(cfg *confV1.Logger) logger.Logger {
 		if err != nil {
 			level = logger.InfoLevel
 		}
-		return logrus.NewLogger(
+
+		l = logrus.NewLogger(
 			logger.WithLevel(level),
 		)
 
@@ -194,7 +240,8 @@ func (a *App) InitLogger(cfg *confV1.Logger) logger.Logger {
 		if err != nil {
 			level = logger.InfoLevel
 		}
-		aLog, err := microZap.NewLogger(
+
+		l, err = microZap.NewLogger(
 			logger.WithLevel(level),
 			microZap.WithNamespace("micro"),
 		)
@@ -202,33 +249,35 @@ func (a *App) InitLogger(cfg *confV1.Logger) logger.Logger {
 			panic(err)
 			return nil
 		}
-		return aLog
 
 	default:
 		return nil
 	}
+
+	a.logger = l
+
+	return l
 }
 
-func (a *App) CreateGrpcService(ctx context.Context, serviceName, version string, cfg *confV1.Server_GRPC, aLog logger.Logger, reg registry.Registry) micro.Service {
-
+func (a *App) createGrpcService(ctx context.Context, cfg *confV1.Server_GRPC) micro.Service {
 	return nil
 }
 
-func (a *App) CreateMicroService(ctx context.Context, serviceName, version string, cfg *confV1.Server_Micro, aLog logger.Logger, reg registry.Registry) micro.Service {
+func (a *App) createMicroService(ctx context.Context, cfg *confV1.Server_Micro) micro.Service {
 	var opts = []micro.Option{
 		micro.Context(ctx),
-		micro.Name(serviceName),
-		micro.Version(version),
+		micro.Name(a.serviceInfo.Name),
+		micro.Version(a.serviceInfo.Version),
 
 		micro.RegisterTTL(time.Second * 30),
 		micro.RegisterInterval(time.Second * 15),
 	}
 
-	if reg != nil {
-		opts = append(opts, micro.Registry(reg))
+	if a.registry != nil {
+		opts = append(opts, micro.Registry(a.registry))
 	}
-	if aLog != nil {
-		opts = append(opts, micro.Logger(aLog))
+	if a.logger != nil {
+		opts = append(opts, micro.Logger(a.logger))
 	}
 
 	if cfg != nil {
@@ -250,17 +299,17 @@ func (a *App) CreateMicroService(ctx context.Context, serviceName, version strin
 	// 初始化服务
 	srv.Init()
 
-	a.srv = srv
+	a.microService = srv
 
 	return srv
 }
 
-func (a *App) CreateRestService(ctx context.Context, serviceName, version string, cfg *confV1.Server_REST, aLog logger.Logger, reg registry.Registry) web.Service {
+func (a *App) createRestService(ctx context.Context, cfg *confV1.Server_REST) web.Service {
 
 	var opts = []web.Option{
 		web.Context(ctx),
-		web.Name(serviceName),
-		web.Version(version),
+		web.Name(a.serviceInfo.Name),
+		web.Version(a.serviceInfo.Version),
 	}
 
 	if cfg.GetEnableGrpcGateway() {
@@ -285,18 +334,18 @@ func (a *App) CreateRestService(ctx context.Context, serviceName, version string
 		opts = append(opts, web.Address(cfg.Addr))
 	}
 
-	if reg != nil {
-		opts = append(opts, web.Registry(reg))
+	if a.registry != nil {
+		opts = append(opts, web.Registry(a.registry))
 	}
-	if aLog != nil {
-		opts = append(opts, web.Logger(aLog))
+	if a.logger != nil {
+		opts = append(opts, web.Logger(a.logger))
 	}
 
 	// 创建一个新的微服务实例
 	srv := web.NewService(
 		opts...,
-	//web.Transport(transport),
-	//web.WrapHandler(middlewares.RecoverWrapper),
+	//webService.Transport(transport),
+	//webService.WrapHandler(middlewares.RecoverWrapper),
 	)
 
 	// 初始化服务
@@ -305,89 +354,186 @@ func (a *App) CreateRestService(ctx context.Context, serviceName, version string
 		return nil
 	}
 
-	a.web = srv
+	a.webService = srv
 
-	a.createMicroClient(reg)
+	a.createMicroClient()
 
 	return srv
 }
 
-func (a *App) createMicroClient(reg registry.Registry) {
+func (a *App) createMicroClient() {
 	a.microClient = client.NewClient(
-		client.Registry(reg),
-		//client.ContentType("application/protobuf"),
-		//client.WithLogger(aLog),
-		//client.Codec("application/json", client.NewCodec),
+		client.Registry(a.registry),
+		client.WithLogger(a.logger),
 	)
 }
 
-func (a *App) Start(ctx context.Context, confPath string, serviceName, version string) error {
-	cfg, err := a.LoadConfig(confPath)
+func (a *App) Start(ctx context.Context) error {
+	cfg, err := a.loadConfig(a.configPath)
 	if err != nil {
-		//panic(err)
 		return err
 	}
 
-	aLog := a.InitLogger(cfg.Logger)
+	// 初始化日志记录器
+	l := a.initLogger(cfg.Logger)
 
-	reg := a.InitRegistry(cfg.Registry)
+	// 初始化注册器
+	a.initRegistry(cfg.Registry)
 
-	a.logger = aLog
+	// 初始化数据库
+	a.createGormClient(cfg.Data, l)
 
-	if cfg.Server != nil && cfg.Server.Micro != nil && cfg.Server.Micro.GetEnable() {
-		a.CreateMicroService(ctx, serviceName, version, cfg.Server.Micro, aLog, reg)
-	}
-	if cfg.Server != nil && cfg.Server.Grpc != nil && cfg.Server.Grpc.GetEnable() {
-		a.CreateGrpcService(ctx, serviceName, version, cfg.Server.Grpc, aLog, reg)
-	}
-	if cfg.Server != nil && cfg.Server.Rest != nil && cfg.Server.Rest.GetEnable() {
-		a.CreateRestService(ctx, serviceName, version, cfg.Server.Rest, aLog, reg)
-	}
+	// 初始化Redis
+	a.createRedisClient(cfg.Data, l)
+
+	// 初始化RPC服务
+	a.initService(ctx, cfg.Server)
 
 	return nil
 }
 
-func (a *App) Stop() error {
-	if a.srv != nil {
-		a.srv = nil
+func (a *App) initService(ctx context.Context, cfg *confV1.Server) {
+	if cfg == nil {
+		return
 	}
 
-	if a.web != nil {
-		if err := a.web.Stop(); err != nil {
-			return err
+	if cfg.Micro != nil && cfg.Micro.GetEnable() {
+		a.createMicroService(ctx, cfg.Micro)
+	}
+	if cfg.Grpc != nil && cfg.Grpc.GetEnable() {
+		a.createGrpcService(ctx, cfg.Grpc)
+	}
+	if cfg.Rest != nil && cfg.Rest.GetEnable() {
+		a.createRestService(ctx, cfg.Rest)
+	}
+}
+
+func (a *App) Stop() {
+	if a.microService != nil {
+		a.microService = nil
+	}
+
+	if a.webService != nil {
+		if err := a.webService.Stop(); err != nil {
+			panic(err)
+			return
 		}
-		a.web = nil
+		a.webService = nil
 	}
-
-	return nil
 }
 
 func (a *App) Run() error {
-	if a.srv != nil {
-		return a.runService()
+	if a.microService != nil {
+		return a.runMicroService()
 	}
 
-	if a.web != nil {
-		return a.runWeb()
+	if a.webService != nil {
+		return a.runWebService()
 	}
 
 	return nil
 }
 
-func (a *App) runService() error {
+func (a *App) runMicroService() error {
 	// 启动服务
-	if err := a.srv.Run(); err != nil {
-		log.Fatalf("Failed to run service: %v", err)
+	if err := a.microService.Run(); err != nil {
+		log.Fatalf("Failed to run micro service: %v", err)
 		return err
 	}
 	return nil
 }
 
-func (a *App) runWeb() error {
+func (a *App) runWebService() error {
 	// 启动服务
-	if err := a.web.Run(); err != nil {
-		log.Fatalf("Failed to run web service: %v", err)
+	if err := a.webService.Run(); err != nil {
+		log.Fatalf("Failed to run webService service: %v", err)
 		return err
 	}
 	return nil
+}
+
+// createGormClient 创建数据库gorm客户端
+func (a *App) createGormClient(cfg *confV1.Data, l logger.Logger) *gorm.DB {
+	if cfg == nil || cfg.Database == nil {
+		return nil
+	}
+
+	var driver gorm.Dialector
+	switch cfg.Database.Driver {
+	default:
+		fallthrough
+	case "mysql":
+		driver = mysql.Open(cfg.Database.Source)
+		break
+	case "postgres":
+		driver = postgres.Open(cfg.Database.Source)
+		break
+		//case DBDriverClickHouse:
+		//	driver = clickhouse.Open(cfg.Database.Source)
+		//	break
+		//case DBDriverSqlite:
+		//	driver = sqlite.Open(cfg.Database.Source)
+		//	break
+		//case DBDriverSqlServer:
+		//	driver = sqlserver.Open(cfg.Database.Source)
+		//break
+	}
+
+	cli, err := gorm.Open(driver, &gorm.Config{})
+	if err != nil {
+		l.Logf(logger.FatalLevel, "[gorm] failed opening connection to db: %v", err)
+		return nil
+	}
+
+	// 运行数据库迁移工具
+	if cfg.Database.Migrate {
+		if err = cli.AutoMigrate(
+			a.gormMigrators...,
+		); err != nil {
+			l.Logf(logger.FatalLevel, "[gorm] failed creating schema resources: %v", err)
+			return nil
+		}
+	}
+
+	a.gormDB = cli
+
+	return cli
+}
+
+func (a *App) createRedisClient(cfg *confV1.Data, l logger.Logger) (rdb *redis.Client) {
+	if cfg == nil || cfg.Redis == nil {
+		return nil
+	}
+
+	if rdb = redis.NewClient(&redis.Options{
+		Addr:         cfg.GetRedis().GetAddr(),
+		Password:     cfg.GetRedis().GetPassword(),
+		DB:           int(cfg.GetRedis().GetDb()),
+		DialTimeout:  cfg.GetRedis().GetDialTimeout().AsDuration(),
+		WriteTimeout: cfg.GetRedis().GetWriteTimeout().AsDuration(),
+		ReadTimeout:  cfg.GetRedis().GetReadTimeout().AsDuration(),
+	}); rdb == nil {
+		log.Fatalf("[redis] failed opening connection to redis")
+		return nil
+	}
+
+	// open tracing instrumentation.
+	if cfg.GetRedis().GetEnableTracing() {
+		if err := redisotel.InstrumentTracing(rdb); err != nil {
+			l.Logf(logger.FatalLevel, "[redis] failed open tracing: %s", err.Error())
+			return nil
+		}
+	}
+
+	// open metrics instrumentation.
+	if cfg.GetRedis().GetEnableMetrics() {
+		if err := redisotel.InstrumentMetrics(rdb); err != nil {
+			l.Logf(logger.FatalLevel, "[redis] failed open metrics: %s", err.Error())
+			return nil
+		}
+	}
+
+	a.rdb = rdb
+
+	return rdb
 }

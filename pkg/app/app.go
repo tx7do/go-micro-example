@@ -73,6 +73,7 @@ func New(opts ...Option) *App {
 		serviceInfo: ServiceInfo{
 			Version: "1.0.0",
 		},
+		gormMigrators: make([]interface{}, 0),
 	}
 
 	app.init(opts...)
@@ -124,6 +125,10 @@ func (a *App) MicroClient() client.Client {
 	}
 	//return client.DefaultClient
 	return a.microClient
+}
+
+func (a *App) AddGormMigrator(migrator ...interface{}) {
+	a.gormMigrators = append(a.gormMigrators, migrator...)
 }
 
 // loadConfig 加载配置
@@ -219,6 +224,7 @@ func (a *App) initRegistry(cfg *confV1.Registry) registry.Registry {
 // initLogger 初始化日志
 func (a *App) initLogger(cfg *confV1.Logger) logger.Logger {
 	if cfg == nil {
+		a.logger = logger.DefaultLogger
 		return nil
 	}
 
@@ -247,14 +253,13 @@ func (a *App) initLogger(cfg *confV1.Logger) logger.Logger {
 		)
 		if err != nil {
 			panic(err)
-			return nil
 		}
-
-	default:
-		return nil
 	}
 
 	a.logger = l
+	if l == nil {
+		a.logger = logger.DefaultLogger
+	}
 
 	return l
 }
